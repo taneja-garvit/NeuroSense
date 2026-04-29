@@ -55,6 +55,28 @@ export const authAPI = {
     },
 
     login: async (email: string, password: string) => {
+        // DEMO MODE: Static credentials for frontend-only deployment (Remove this block after backend deployment)
+        const DEMO_EMAIL = import.meta.env.VITE_DEMO_EMAIL || 'demo@neurosense.com';
+        const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD || 'demo123';
+        // Check if credentials match demo credentials (TEMPORARY - Remove after backend deployment)
+        if (email === DEMO_EMAIL && password === DEMO_PASSWORD) {
+            // Generate a dummy token for demo mode (TEMPORARY - Remove after backend deployment)
+            const dummyToken = 'demo_token_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            // Store the dummy token (TEMPORARY - Remove after backend deployment)
+            setAuthToken(dummyToken);
+            // Return success response with demo user data (TEMPORARY - Remove after backend deployment)
+            return {
+                success: true,
+                data: {
+                    token: dummyToken,
+                    _id: 'demo_user_id',
+                    name: 'Demo User',
+                    email: email,
+                },
+            };
+        }
+        // END DEMO MODE BLOCK - Remove above code after backend deployment
+
         const response = await authFetch(`${API_BASE_URL}/auth/login`, {
             method: 'POST',
             body: JSON.stringify({ email, password }),
