@@ -8,11 +8,18 @@ import {
   Brain,
   MessageSquare,
   ArrowRight,
-  Activity
+  Activity,
+  Sparkles,
+  Phone,
+  ChevronDown,
+  ChevronUp,
+  Bot,
+  User
 } from 'lucide-react';
 
 const ResultsPage = () => {
   const [assessment, setAssessment] = useState<any>(null);
+  const [showTranscript, setShowTranscript] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -35,7 +42,7 @@ const ResultsPage = () => {
     );
   }
 
-  const { riskScore, riskLevel, insights, sentimentAnalysis } = assessment;
+  const { riskScore, riskLevel, insights, sentimentAnalysis, summary, crisisFlag, conversation } = assessment;
 
   const getRiskConfig = (level: string) => {
     if (level === 'High') return { color: 'text-red-600', bgColor: 'bg-red-100', icon: AlertTriangle };
@@ -54,12 +61,51 @@ const ResultsPage = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <div className="text-center mb-12">
+      <div className="text-center mb-10">
         <h1 className="text-4xl font-bold text-gray-900 mb-4">Analysis Results</h1>
         <p className="text-lg text-gray-600">
-          Comprehensive assessment based on your responses
+          Comprehensive assessment based on your conversation
         </p>
       </div>
+
+      {/* Crisis banner (only shown when crisisFlag is true) */}
+      {crisisFlag && (
+        <div className="mb-8 p-6 bg-red-50 border-2 border-red-300 rounded-3xl">
+          <div className="flex items-start space-x-4">
+            <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+              <Phone className="w-5 h-5 text-red-700" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-red-900 mb-2">You don't have to go through this alone</h3>
+              <p className="text-sm text-red-800 mb-3">
+                Some of what you shared suggests you may be having a really hard time right now. Please consider
+                reaching out to someone trained to help. If you are in immediate danger, contact your local
+                emergency services right away.
+              </p>
+              <ul className="text-sm text-red-800 space-y-1">
+                <li><strong>iCall (India):</strong> +91 9152987821</li>
+                <li><strong>Vandrevala Foundation (India, 24x7):</strong> 1860-2662-345</li>
+                <li><strong>International:</strong> findahelpline.com</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI narrative summary */}
+      {summary && (
+        <div className="mb-10 p-6 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-100 rounded-3xl">
+          <div className="flex items-start space-x-4">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center flex-shrink-0">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-purple-700 mb-1">AI Summary</h3>
+              <p className="text-base text-gray-800 leading-relaxed">{summary}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-8">
         {/* Risk Score Section */}
@@ -171,6 +217,59 @@ const ResultsPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Conversation transcript (collapsible) */}
+      {Array.isArray(conversation) && conversation.length > 0 && (
+        <div className="mt-10 bg-white/60 backdrop-blur-sm rounded-3xl border border-blue-100 overflow-hidden">
+          <button
+            onClick={() => setShowTranscript((s) => !s)}
+            className="w-full flex items-center justify-between px-6 py-4 hover:bg-white/40 transition-colors"
+          >
+            <div className="flex items-center space-x-3">
+              <MessageSquare className="w-5 h-5 text-blue-600" />
+              <span className="font-semibold text-gray-900">Your conversation</span>
+              <span className="text-xs text-gray-500">({conversation.length} messages)</span>
+            </div>
+            {showTranscript ? (
+              <ChevronUp className="w-5 h-5 text-gray-500" />
+            ) : (
+              <ChevronDown className="w-5 h-5 text-gray-500" />
+            )}
+          </button>
+          {showTranscript && (
+            <div className="px-6 pb-6 space-y-3">
+              {conversation.map((m: any, i: number) => {
+                const isAi = m.role === 'ai';
+                return (
+                  <div
+                    key={i}
+                    className={`flex items-start space-x-3 ${isAi ? '' : 'flex-row-reverse space-x-reverse'}`}
+                  >
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        isAi
+                          ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
+                          : 'bg-gray-200 text-gray-700'
+                      }`}
+                    >
+                      {isAi ? <Bot className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                    </div>
+                    <div
+                      className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm ${
+                        isAi
+                          ? 'bg-white border border-gray-100 text-gray-800'
+                          : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
+                      }`}
+                    >
+                      <p className="leading-relaxed whitespace-pre-wrap">{m.content}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Action Button */}
       <div className="text-center mt-12">

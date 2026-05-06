@@ -2,11 +2,15 @@ const express = require('express');
 const router = express.Router();
 const {
     getAllRecommendations,
-    getRecommendationsByRiskLevel
+    getRecommendationsByRiskLevel,
+    getAIRecommendations
 } = require('../controllers/recommendationController');
 const { protect } = require('../middleware/auth');
 
-// Protected routes
+// AI personalized recommendations (must be before the :riskLevel route)
+router.get('/ai/:assessmentId', protect, getAIRecommendations);
+
+// Legacy / fallback
 router.get('/', protect, getAllRecommendations);
 router.get('/:riskLevel', protect, getRecommendationsByRiskLevel);
 

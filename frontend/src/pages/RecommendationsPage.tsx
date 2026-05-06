@@ -36,6 +36,8 @@ interface Recommendation {
 const RecommendationsPage = () => {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [regenerating, setRegenerating] = useState(false);
+  const [source, setSource] = useState<'ai' | 'fallback' | null>(null);
   const [error, setError] = useState('');
   const [riskLevel, setRiskLevel] = useState<'Low' | 'Medium' | 'High'>('Medium');
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
@@ -56,33 +58,72 @@ const RecommendationsPage = () => {
 
   const loadRecommendations = async () => {
     try {
-      // Try to get risk level from last assessment
       const storedAssessment = sessionStorage.getItem('currentAssessment');
       let userRiskLevel: 'Low' | 'Medium' | 'High' = 'Medium';
+      let assessmentId: string | null = null;
 
       if (storedAssessment) {
         const assessment = JSON.parse(storedAssessment);
         userRiskLevel = assessment.riskLevel;
+        assessmentId = assessment._id;
         setRiskLevel(userRiskLevel);
       }
 
+      // Prefer AI-generated personalized recommendations
+      if (assessmentId) {
+        try {
+          const aiResponse = await recommendationsAPI.getAI(assessmentId);
+          if (aiResponse.success) {
+            setRecommendations(aiResponse.data);
+            setSource(aiResponse.source === 'ai' ? 'ai' : 'fallback');
+            return;
+          }
+        } catch (aiErr: any) {
+          console.warn('AI recommendations failed, falling back:', aiErr?.message);
+        }
+      }
+
+      // Fallback: risk-level filtered DB recommendations
       const response = await recommendationsAPI.getByRiskLevel(userRiskLevel);
       if (response.success) {
         setRecommendations(response.data);
+        setSource('fallback');
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load recommendations');
-      // Fallback to all recommendations
       try {
         const response = await recommendationsAPI.getAll();
         if (response.success) {
           setRecommendations(response.data);
+          setSource('fallback');
         }
       } catch (fallbackErr) {
         console.error('Failed to load recommendations:', fallbackErr);
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRegenerate = async () => {
+    const storedAssessment = sessionStorage.getItem('currentAssessment');
+    if (!storedAssessment) return;
+    const assessment = JSON.parse(storedAssessment);
+    if (!assessment._id) return;
+
+    setRegenerating(true);
+    setError('');
+    try {
+      const aiResponse = await recommendationsAPI.getAI(assessment._id);
+      if (aiResponse.success) {
+        setRecommendations(aiResponse.data);
+        setSource(aiResponse.source === 'ai' ? 'ai' : 'fallback');
+        setExpandedCards(new Set());
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to regenerate recommendations');
+    } finally {
+      setRegenerating(false);
     }
   };
 
@@ -189,18 +230,39 @@ const RecommendationsPage = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
       {/* Header */}
       <div className="text-center mb-12">
-        <div className="inline-block mb-4">
+        <div className="inline-flex items-center gap-2 mb-4 flex-wrap justify-center">
           <span className={`px-4 py-2 rounded-full text-sm font-semibold ${riskLevel === 'Low' ? 'bg-green-100 text-green-700' :
               riskLevel === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
                 'bg-red-100 text-red-700'
             }`}>
             {riskLevel} Risk Level
           </span>
+          {source === 'ai' && (
+            <span className="px-4 py-2 rounded-full text-sm font-semibold bg-gradient-to-r from-blue-100 to-purple-100 text-purple-700 inline-flex items-center gap-1.5">
+              <Lightbulb className="w-4 h-4" />
+              AI personalized
+            </span>
+          )}
+          {source === 'fallback' && (
+            <span className="px-4 py-2 rounded-full text-sm font-semibold bg-gray-100 text-gray-600">
+              Curated set
+            </span>
+          )}
         </div>
         <h1 className="text-4xl font-bold text-gray-900 mb-4">Your Personalized Wellness Plan</h1>
-        <p className="text-lg text-gray-600">
-          Evidence-based strategies tailored to your assessment results
+        <p className="text-lg text-gray-600 mb-6">
+          {source === 'ai'
+            ? 'These suggestions were generated specifically from your conversation.'
+            : 'Evidence-based strategies tailored to your assessment results'}
         </p>
+        <button
+          onClick={handleRegenerate}
+          disabled={regenerating}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-white border border-blue-200 text-blue-700 font-semibold hover:bg-blue-50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <RefreshCw className={`w-4 h-4 ${regenerating ? 'animate-spin' : ''}`} />
+          <span>{regenerating ? 'Regenerating...' : 'Regenerate with AI'}</span>
+        </button>
       </div>
 
       {/* Motivational Quote */}

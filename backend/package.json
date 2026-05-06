@@ -8,17 +8,23 @@
     "dev": "nodemon server.js",
     "seed": "node seeders/recommendationSeeder.js"
   },
-  "keywords": ["mental-health", "anxiety", "assessment", "api"],
+  "keywords": [
+    "mental-health",
+    "anxiety",
+    "assessment",
+    "api"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
-    "mongoose": "^8.0.3",
     "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "express-validator": "^7.0.1"
+    "express": "^4.18.2",
+    "express-validator": "^7.0.1",
+    "groq-sdk": "^1.1.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.0.3"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

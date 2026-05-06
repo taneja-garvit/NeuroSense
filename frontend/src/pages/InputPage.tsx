@@ -1,187 +1,273 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { assessmentAPI } from '../services/api';
-import { MessageSquare, ArrowRight, AlertCircle } from 'lucide-react';
+import { Send, Sparkles, AlertCircle, Bot, User } from 'lucide-react';
 
-interface Question {
+type ChatRole = 'ai' | 'user';
+
+interface ChatMessage {
+  role: ChatRole;
+  content: string;
+  format?: 'mcq' | 'text';
+  options?: string[];
+}
+
+interface AIQuestion {
   id: string;
-  question: string;
-  description: string;
-  scale: {
-    min: number;
-    max: number;
-    labels: { [key: number]: string };
-  };
+  text: string;
+  format: 'mcq' | 'text';
+  options?: string[];
 }
 
 const InputPage = () => {
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [answers, setAnswers] = useState<{ [key: string]: number }>({});
-  const [textInput, setTextInput] = useState('');
+  const [assessmentId, setAssessmentId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [currentQuestion, setCurrentQuestion] = useState<AIQuestion | null>(null);
+  const [textAnswer, setTextAnswer] = useState('');
+  const [progress, setProgress] = useState({ asked: 0, max: 6 });
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [aiThinking, setAiThinking] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const scrollAnchorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    loadQuestions();
+    startConversation();
   }, []);
 
-  const loadQuestions = async () => {
+  useEffect(() => {
+    scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages, aiThinking]);
+
+  const startConversation = async () => {
+    setLoading(true);
+    setError('');
     try {
-      const response = await assessmentAPI.getQuestions();
+      const response = await assessmentAPI.start();
       if (response.success) {
-        setQuestions(response.data);
-        // Initialize answers
-        const initialAnswers: { [key: string]: number } = {};
-        response.data.forEach((q: Question) => {
-          initialAnswers[q.id] = 3; // Default to middle value
-        });
-        setAnswers(initialAnswers);
+        const { assessmentId: id, question, progress: p } = response.data;
+        setAssessmentId(id);
+        setCurrentQuestion(question);
+        setProgress(p || { asked: 1, max: 6 });
+        setMessages([
+          {
+            role: 'ai',
+            content: question.text,
+            format: question.format,
+            options: question.options,
+          },
+        ]);
       }
     } catch (err: any) {
-      setError('Failed to load questions');
+      setError(err.message || 'Failed to start the assessment');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAnswerChange = (questionId: string, value: number) => {
-    setAnswers({
-      ...answers,
-      [questionId]: value,
-    });
-  };
+  const sendAnswer = async (answer: string) => {
+    if (!assessmentId || !answer.trim()) return;
 
-  const handleSubmit = async () => {
-    setSubmitting(true);
+    setMessages((prev) => [...prev, { role: 'user', content: answer.trim() }]);
+    setCurrentQuestion(null);
+    setTextAnswer('');
+    setAiThinking(true);
     setError('');
 
     try {
-      const response = await assessmentAPI.submitAssessment(answers, textInput);
-      if (response.success) {
-        // Store the assessment result in sessionStorage for the results page
-        sessionStorage.setItem('currentAssessment', JSON.stringify(response.data));
-        navigate('/results');
+      const response = await assessmentAPI.answer(assessmentId, answer);
+      if (!response.success) {
+        throw new Error(response.message || 'Something went wrong');
       }
+
+      const { done, question, progress: p, assessment } = response.data;
+
+      if (done) {
+        sessionStorage.setItem('currentAssessment', JSON.stringify(assessment));
+        sessionStorage.setItem('currentAssessmentId', String(assessment._id));
+        navigate('/results');
+        return;
+      }
+
+      setCurrentQuestion(question);
+      setProgress(p || progress);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'ai',
+          content: question.text,
+          format: question.format,
+          options: question.options,
+        },
+      ]);
     } catch (err: any) {
-      setError(err.message || 'Failed to submit assessment');
+      setError(err.message || 'Failed to send your answer');
     } finally {
-      setSubmitting(false);
+      setAiThinking(false);
+    }
+  };
+
+  const handleOptionClick = (option: string) => {
+    sendAnswer(option);
+  };
+
+  const handleTextSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (textAnswer.trim()) {
+      sendAnswer(textAnswer);
     }
   };
 
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center">
         <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-        <p className="mt-4 text-gray-600">Loading questionnaire...</p>
+        <p className="mt-4 text-gray-600">Starting your AI assessment...</p>
       </div>
     );
   }
 
+  const progressPct = Math.min(100, Math.round((progress.asked / progress.max) * 100));
+
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <div className="text-center mb-12">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">Social Anxiety Assessment</h1>
-        <p className="text-lg text-gray-600">
-          Please answer the following questions honestly. Your responses will help us assess your anxiety levels.
+      {/* Header */}
+      <div className="text-center mb-8">
+        <div className="inline-flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-blue-100 to-purple-100 rounded-full mb-4">
+          <Sparkles className="w-4 h-4 text-purple-600" />
+          <span className="text-sm font-semibold text-purple-700">AI-powered chat assessment</span>
+        </div>
+        <h1 className="text-4xl font-bold text-gray-900 mb-3">Social Anxiety Screener</h1>
+        <p className="text-gray-600">
+          Chat with our AI for a few minutes. It will adapt its questions based on what you share.
         </p>
+      </div>
+
+      {/* Progress bar */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-2 text-sm">
+          <span className="text-gray-600">
+            Question {progress.asked} of ~{progress.max}
+          </span>
+          <span className="text-gray-500">{progressPct}%</span>
+        </div>
+        <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-blue-600 to-purple-600 transition-all duration-500 ease-out"
+            style={{ width: `${progressPct}%` }}
+          ></div>
+        </div>
       </div>
 
       {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 flex items-center space-x-2">
-          <AlertCircle className="w-5 h-5" />
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
-      {/* Questionnaire */}
-      <div className="space-y-8 mb-8">
-        {questions.map((question, index) => (
-          <div key={question.id} className="bg-white/60 backdrop-blur-sm rounded-3xl p-8 border border-blue-100">
-            <div className="mb-6">
-              <div className="flex items-start space-x-3 mb-2">
-                <span className="inline-flex items-center justify-center w-8 h-8 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-full font-semibold text-sm">
-                  {index + 1}
-                </span>
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                    {question.question}
-                  </h3>
-                  <p className="text-sm text-gray-600">{question.description}</p>
-                </div>
-              </div>
-            </div>
+      {/* Chat container */}
+      <div className="bg-white/60 backdrop-blur-sm rounded-3xl border border-blue-100 p-6 mb-6 min-h-[420px] max-h-[60vh] overflow-y-auto">
+        <div className="space-y-4">
+          {messages.map((msg, i) => (
+            <ChatBubble key={i} message={msg} />
+          ))}
+          {aiThinking && <TypingIndicator />}
+          <div ref={scrollAnchorRef} />
+        </div>
+      </div>
 
-            {/* Scale */}
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                {[1, 2, 3, 4, 5].map((value) => (
+      {/* Answer input area */}
+      {currentQuestion && !aiThinking && (
+        <div className="bg-white/60 backdrop-blur-sm rounded-3xl border border-blue-100 p-6">
+          {currentQuestion.format === 'mcq' && currentQuestion.options ? (
+            <div>
+              <p className="text-sm font-medium text-gray-600 mb-3">Choose the option that fits you best:</p>
+              <div className="grid sm:grid-cols-2 gap-3">
+                {currentQuestion.options.map((option, idx) => (
                   <button
-                    key={value}
-                    onClick={() => handleAnswerChange(question.id, value)}
-                    className={`flex-1 mx-1 py-3 px-2 rounded-xl font-medium transition-all duration-300 ${answers[question.id] === value
-                        ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg scale-105'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
+                    key={idx}
+                    onClick={() => handleOptionClick(option)}
+                    className="text-left px-4 py-3 rounded-2xl border-2 border-gray-200 hover:border-purple-400 hover:bg-purple-50 transition-all duration-200 font-medium text-gray-800"
                   >
-                    {value}
+                    {option}
                   </button>
                 ))}
               </div>
-              <div className="flex justify-between text-xs text-gray-500 px-2">
-                <span>{question.scale.labels[1]}</span>
-                <span>{question.scale.labels[5]}</span>
-              </div>
             </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Optional Text Input */}
-      <div className="bg-white/60 backdrop-blur-sm rounded-3xl p-8 border border-blue-100 mb-8">
-        <div className="flex items-center space-x-3 mb-4">
-          <MessageSquare className="w-6 h-6 text-blue-600" />
-          <h3 className="text-xl font-semibold text-gray-900">Additional Comments (Optional)</h3>
-        </div>
-        <textarea
-          value={textInput}
-          onChange={(e) => setTextInput(e.target.value)}
-          placeholder="Share any additional thoughts or describe a recent situation that made you feel anxious..."
-          className="w-full h-32 p-4 border border-gray-200 rounded-2xl resize-none focus:ring-2 focus:ring-blue-300 focus:border-transparent transition-all duration-300"
-          maxLength={1000}
-        />
-        <div className="mt-2 text-sm text-gray-500 text-right">
-          {textInput.length}/1000 characters
-        </div>
-      </div>
-
-      {/* Submit Button */}
-      <div className="text-center">
-        <button
-          onClick={handleSubmit}
-          disabled={submitting}
-          className="inline-flex items-center space-x-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-12 py-4 rounded-2xl font-semibold text-lg hover:from-blue-700 hover:to-purple-700 transform hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {submitting ? (
-            <>
-              <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              <span>Analyzing...</span>
-            </>
           ) : (
-            <>
-              <span>Submit Assessment</span>
-              <ArrowRight className="w-5 h-5" />
-            </>
+            <form onSubmit={handleTextSubmit}>
+              <p className="text-sm font-medium text-gray-600 mb-3">Share in your own words:</p>
+              <textarea
+                value={textAnswer}
+                onChange={(e) => setTextAnswer(e.target.value)}
+                placeholder="Type your answer here..."
+                className="w-full h-28 p-4 border border-gray-200 rounded-2xl resize-none focus:ring-2 focus:ring-purple-300 focus:border-transparent transition-all duration-300"
+                maxLength={1000}
+                autoFocus
+              />
+              <div className="flex items-center justify-between mt-3">
+                <span className="text-xs text-gray-500">{textAnswer.length}/1000</span>
+                <button
+                  type="submit"
+                  disabled={!textAnswer.trim()}
+                  className="inline-flex items-center space-x-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-2.5 rounded-2xl font-semibold hover:from-blue-700 hover:to-purple-700 transform hover:scale-105 transition-all duration-300 shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                >
+                  <span>Send</span>
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            </form>
           )}
-        </button>
-        <p className="text-sm text-gray-500 mt-4">
-          Your responses are confidential and will be used to generate personalized recommendations
-        </p>
+        </div>
+      )}
+
+      <p className="text-center text-xs text-gray-500 mt-6">
+        This is a screening tool, not a medical diagnosis. Your responses are confidential.
+      </p>
+    </div>
+  );
+};
+
+const ChatBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
+  const isAi = message.role === 'ai';
+  return (
+    <div className={`flex items-start space-x-3 ${isAi ? '' : 'flex-row-reverse space-x-reverse'}`}>
+      <div
+        className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
+          isAi
+            ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
+            : 'bg-gray-200 text-gray-700'
+        }`}
+      >
+        {isAi ? <Bot className="w-5 h-5" /> : <User className="w-5 h-5" />}
+      </div>
+      <div
+        className={`max-w-[75%] px-4 py-3 rounded-2xl ${
+          isAi
+            ? 'bg-white border border-gray-100 shadow-sm text-gray-800 rounded-tl-sm'
+            : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-tr-sm'
+        }`}
+      >
+        <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
       </div>
     </div>
   );
 };
+
+const TypingIndicator: React.FC = () => (
+  <div className="flex items-start space-x-3">
+    <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 bg-gradient-to-r from-blue-600 to-purple-600 text-white">
+      <Bot className="w-5 h-5" />
+    </div>
+    <div className="bg-white border border-gray-100 shadow-sm rounded-2xl rounded-tl-sm px-4 py-3">
+      <div className="flex space-x-1">
+        <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+        <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+        <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+      </div>
+    </div>
+  </div>
+);
 
 export default InputPage;
